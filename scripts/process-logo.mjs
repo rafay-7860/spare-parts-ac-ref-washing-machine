@@ -1,5 +1,5 @@
 import sharp from 'sharp'
-import { mkdir, copyFile } from 'fs/promises'
+import { mkdir, copyFile, access } from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -15,7 +15,6 @@ const sourceCandidates = [
 ]
 
 async function findSource() {
-  const { access } = await import('fs/promises')
   for (const candidate of sourceCandidates) {
     try {
       await access(candidate)
@@ -27,53 +26,70 @@ async function findSource() {
   throw new Error('Logo source PNG not found')
 }
 
-function backgroundAlpha(r, g, b) {
+function isBackdrop(r, g, b) {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
   const chroma = max - min
   const lum = (r + g + b) / 3
   const sat = max === 0 ? 0 : chroma / max
 
-  // Pure / near-white disc and light gray square
-  if (lum >= 210 && sat <= 0.18) return 0
-  if (lum >= 185 && sat <= 0.12) return 0
-  if (lum >= 140 && sat <= 0.08) return 0
+  // Keep pure white disc inside the emblem (never treat as backdrop)
+  if (lum >= 230 && sat <= 0.12) return false
 
-  // Mid gray backdrop outside the emblem
-  if (sat <= 0.1 && lum >= 90 && lum < 210) return 0
-
-  // Soft anti-aliased fringe against white: keep only saturated color
-  if (lum >= 160 && sat < 0.28) {
-    const keep = Math.min(1, Math.max(0, (sat - 0.08) / 0.2))
-    return Math.round(255 * keep)
-  }
-
-  // Light tinted edge pixels (pink/mint from anti-alias)
-  if (chroma < 55 && lum > 175) {
-    return Math.round(255 * Math.min(1, chroma / 55))
-  }
-
-  return 255
+  // Neutral gray square outside the circular emblem only
+  if (sat <= 0.14 && lum >= 95 && lum < 225) return true
+  // Soft anti-aliased gray fringe outside the black ring
+  if (sat <= 0.2 && lum >= 120 && lum < 220 && chroma < 40) return true
+  return false
 }
 
+/**
+ * Remove only the exterior square backdrop via flood-fill from image edges.
+ * Keeps the white circular disc, black ring, and colored monogram intact.
+ */
 async function removeLogoBackground(inputPath, outputPath) {
   const image = sharp(inputPath)
   const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const { width, height, channels } = info
+  const total = width * height
+  const visited = new Uint8Array(total)
+  const queue = new Int32Array(total)
+  let qh = 0
+  let qt = 0
 
-  for (let i = 0; i < width * height; i++) {
+  const push = (x, y) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return
+    const i = y * width + x
+    if (visited[i]) return
     const idx = i * channels
-    const r = data[idx]
-    const g = data[idx + 1]
-    const b = data[idx + 2]
-    const nextAlpha = backgroundAlpha(r, g, b)
-    data[idx + 3] = Math.min(data[idx + 3], nextAlpha)
+    if (!isBackdrop(data[idx], data[idx + 1], data[idx + 2])) return
+    visited[i] = 1
+    queue[qt++] = i
   }
 
-  // Trim empty margins so the logo sits cleanly in its frame
+  for (let x = 0; x < width; x++) {
+    push(x, 0)
+    push(x, height - 1)
+  }
+  for (let y = 0; y < height; y++) {
+    push(0, y)
+    push(width - 1, y)
+  }
+
+  while (qh < qt) {
+    const i = queue[qh++]
+    const x = i % width
+    const y = (i / width) | 0
+    data[i * channels + 3] = 0
+    push(x + 1, y)
+    push(x - 1, y)
+    push(x, y + 1)
+    push(x, y - 1)
+  }
+
   await sharp(data, { raw: { width, height, channels } })
     .png()
-    .trim({ threshold: 8 })
+    .trim({ threshold: 4 })
     .toFile(outputPath)
 }
 
