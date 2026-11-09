@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Huma Spare Parts">
+  <circle cx="50" cy="50" r="48" fill="#FFFFFF"/>
+  <path d="M18 68c0-22 10-40 28-48" fill="none" stroke="#078C49" stroke-width="10" stroke-linecap="round"/>
+  <path d="M82 32c0 22-10 40-28 48" fill="none" stroke="#D7192D" stroke-width="10" stroke-linecap="round"/>
+  <path d="M34 24h10v20c4-6 12-10 18-8v-12h10v52h-10V56c-6 2-14 6-18 12v16H34V24z" fill="#D7192D"/>
+  <path d="M34 52c6-8 14-12 18-12v32H34V52z" fill="#078C49"/>
+  <path d="M34 48c8-10 18-14 28-12" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+</svg>
