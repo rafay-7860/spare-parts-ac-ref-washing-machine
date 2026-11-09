@@ -26,70 +26,52 @@ async function findSource() {
   throw new Error('Logo source PNG not found')
 }
 
-function isBackdrop(r, g, b) {
+/**
+ * Keep only the emblem artwork (red/green mark + dark outlines).
+ * Remove white disc, gray square, and other neutral backgrounds.
+ */
+function emblemAlpha(r, g, b) {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
   const chroma = max - min
   const lum = (r + g + b) / 3
   const sat = max === 0 ? 0 : chroma / max
 
-  // Keep pure white disc inside the emblem (never treat as backdrop)
-  if (lum >= 230 && sat <= 0.12) return false
+  const isRed = r > g + 18 && r > b + 18
+  const isGreen = g > r + 12 && g > b + 8
 
-  // Neutral gray square outside the circular emblem only
-  if (sat <= 0.14 && lum >= 95 && lum < 225) return true
-  // Soft anti-aliased gray fringe outside the black ring
-  if (sat <= 0.2 && lum >= 120 && lum < 220 && chroma < 40) return true
-  return false
+  // Solid brand colors
+  if ((isRed || isGreen) && sat >= 0.22 && chroma >= 35) return 255
+
+  // Soft anti-aliased brand edges over white/gray
+  if ((isRed || isGreen) && chroma >= 18 && sat >= 0.12) {
+    return Math.round(255 * Math.min(1, (chroma - 12) / 40))
+  }
+
+  // Black / dark outline strokes that belong to the emblem
+  if (lum <= 70 && sat <= 0.35) return 255
+  if (lum <= 110 && sat <= 0.25 && chroma < 45) {
+    return Math.round(255 * Math.min(1, (110 - lum) / 55))
+  }
+
+  // Everything else (white disc, gray square, soft neutrals) → transparent
+  return 0
 }
 
-/**
- * Remove only the exterior square backdrop via flood-fill from image edges.
- * Keeps the white circular disc, black ring, and colored monogram intact.
- */
 async function removeLogoBackground(inputPath, outputPath) {
   const image = sharp(inputPath)
   const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const { width, height, channels } = info
-  const total = width * height
-  const visited = new Uint8Array(total)
-  const queue = new Int32Array(total)
-  let qh = 0
-  let qt = 0
 
-  const push = (x, y) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) return
-    const i = y * width + x
-    if (visited[i]) return
+  for (let i = 0; i < width * height; i++) {
     const idx = i * channels
-    if (!isBackdrop(data[idx], data[idx + 1], data[idx + 2])) return
-    visited[i] = 1
-    queue[qt++] = i
-  }
-
-  for (let x = 0; x < width; x++) {
-    push(x, 0)
-    push(x, height - 1)
-  }
-  for (let y = 0; y < height; y++) {
-    push(0, y)
-    push(width - 1, y)
-  }
-
-  while (qh < qt) {
-    const i = queue[qh++]
-    const x = i % width
-    const y = (i / width) | 0
-    data[i * channels + 3] = 0
-    push(x + 1, y)
-    push(x - 1, y)
-    push(x, y + 1)
-    push(x, y - 1)
+    const nextAlpha = emblemAlpha(data[idx], data[idx + 1], data[idx + 2])
+    data[idx + 3] = Math.min(data[idx + 3], nextAlpha)
   }
 
   await sharp(data, { raw: { width, height, channels } })
     .png()
-    .trim({ threshold: 4 })
+    .trim({ threshold: 6 })
     .toFile(outputPath)
 }
 
