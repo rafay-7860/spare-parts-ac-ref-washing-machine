@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+
+src/assets/logo/huma-logo-preview.png

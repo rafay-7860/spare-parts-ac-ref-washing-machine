@@ -26,35 +26,22 @@ async function findSource() {
   throw new Error('Logo source PNG not found')
 }
 
-/**
- * Keep only the emblem artwork (red/green mark + dark outlines).
- * Remove white disc, gray square, and other neutral backgrounds.
- */
+/** Keep only red / green emblem pixels. Strip white, gray, and black backgrounds. */
 function emblemAlpha(r, g, b) {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
   const chroma = max - min
-  const lum = (r + g + b) / 3
   const sat = max === 0 ? 0 : chroma / max
 
-  const isRed = r > g + 18 && r > b + 18
-  const isGreen = g > r + 12 && g > b + 8
+  const isRed = r > g + 16 && r > b + 16
+  const isGreen = g > r + 10 && g > b + 6
 
-  // Solid brand colors
-  if ((isRed || isGreen) && sat >= 0.22 && chroma >= 35) return 255
-
-  // Soft anti-aliased brand edges over white/gray
-  if ((isRed || isGreen) && chroma >= 18 && sat >= 0.12) {
-    return Math.round(255 * Math.min(1, (chroma - 12) / 40))
+  if ((isRed || isGreen) && sat >= 0.2 && chroma >= 28) return 255
+  if ((isRed || isGreen) && chroma >= 14 && sat >= 0.1) {
+    return Math.round(255 * Math.min(1, (chroma - 8) / 36))
   }
 
-  // Black / dark outline strokes that belong to the emblem
-  if (lum <= 70 && sat <= 0.35) return 255
-  if (lum <= 110 && sat <= 0.25 && chroma < 45) {
-    return Math.round(255 * Math.min(1, (110 - lum) / 55))
-  }
-
-  // Everything else (white disc, gray square, soft neutrals) → transparent
+  // No white disc, gray square, or black fill — fully transparent
   return 0
 }
 
@@ -65,13 +52,12 @@ async function removeLogoBackground(inputPath, outputPath) {
 
   for (let i = 0; i < width * height; i++) {
     const idx = i * channels
-    const nextAlpha = emblemAlpha(data[idx], data[idx + 1], data[idx + 2])
-    data[idx + 3] = Math.min(data[idx + 3], nextAlpha)
+    data[idx + 3] = Math.min(data[idx + 3], emblemAlpha(data[idx], data[idx + 1], data[idx + 2]))
   }
 
   await sharp(data, { raw: { width, height, channels } })
     .png()
-    .trim({ threshold: 6 })
+    .trim({ threshold: 8 })
     .toFile(outputPath)
 }
 
@@ -86,6 +72,29 @@ const publicLogo = path.join(publicDir, 'logo.png')
 
 await removeLogoBackground(source, transparentLogo)
 await copyFile(transparentLogo, publicLogo)
+
+// Checkerboard preview so transparency is visually obvious
+const logo = sharp(transparentLogo)
+const meta = await logo.metadata()
+const size = Math.max(meta.width || 200, meta.height || 200)
+const cell = 12
+const svg = Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+    <defs>
+      <pattern id="c" width="${cell * 2}" height="${cell * 2}" patternUnits="userSpaceOnUse">
+        <rect width="${cell}" height="${cell}" fill="#ddd"/>
+        <rect x="${cell}" width="${cell}" height="${cell}" fill="#fff"/>
+        <rect y="${cell}" width="${cell}" height="${cell}" fill="#fff"/>
+        <rect x="${cell}" y="${cell}" width="${cell}" height="${cell}" fill="#ddd"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#c)"/>
+  </svg>`
+)
+await sharp(svg)
+  .composite([{ input: transparentLogo, gravity: 'centre' }])
+  .png()
+  .toFile(path.join(logoDir, 'huma-logo-preview.png'))
 
 console.log('Transparent logo written to:', transparentLogo)
 console.log('Public logo written to:', publicLogo)

@@ -45,10 +45,11 @@ export function Logo({
         <img
           src={logoSrc}
           alt={`${company.brandName} emblem logo`}
-          className={`${imgClassName} relative object-contain ${animated || showHalo ? 'logo-float' : ''}`}
+          className={`${imgClassName} relative bg-transparent object-contain ${animated || showHalo ? 'logo-float' : ''}`}
           width={112}
           height={112}
           decoding="async"
+          style={{ background: 'transparent' }}
         />
       </span>
       <span className="hidden min-[420px]:flex flex-col leading-tight">
